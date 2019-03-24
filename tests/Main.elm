@@ -1,4 +1,4 @@
-module Main exposing (basic, loop, repeat)
+module Main exposing (basic, context, loop, repeat)
 
 import Bytes as B
 import Bytes.Encode as E
@@ -18,40 +18,30 @@ basic =
                     |> Expect.equal (Ok 8)
         , test "no reading past end of input" <|
             \_ ->
-                E.sequence []
-                    |> E.encode
-                    |> P.run P.unsignedInt8
+                P.run P.unsignedInt8 emptyBytes
                     |> Expect.equal (Err (P.OutOfBounds { at = 0, bytes = 1 }))
         , test "succeed succeeds" <|
             \_ ->
-                E.sequence []
-                    |> E.encode
-                    |> P.run (P.succeed "sure")
+                P.run (P.succeed "sure") emptyBytes
                     |> Expect.equal (Ok "sure")
         , test "fail fails" <|
             \_ ->
-                E.sequence []
-                    |> E.encode
-                    |> P.run (P.fail "nope")
+                P.run (P.fail "nope") emptyBytes
                     |> Expect.equal (Err (P.Custom { at = 0 } "nope"))
         , test "inContext adds context" <|
             \_ ->
-                E.sequence []
-                    |> E.encode
-                    |> P.run (P.inContext "context" P.unsignedInt8)
+                P.run (P.inContext "context" P.unsignedInt8) emptyBytes
                     |> Expect.equal
-                        (Err
-                            (P.InContext { label = "context", start = 0 }
-                                (P.OutOfBounds { at = 0, bytes = 1 })
-                            )
+                        (P.OutOfBounds { at = 0, bytes = 1 }
+                            |> P.InContext { label = "context", start = 0 }
+                            |> Err
                         )
         , test "can read multiple things" <|
             \_ ->
-                E.sequence
+                encodeSequence
                     [ E.unsignedInt8 1
                     , E.unsignedInt8 2
                     ]
-                    |> E.encode
                     |> P.run (P.map2 Tuple.pair P.unsignedInt8 P.unsignedInt8)
                     |> Expect.equal (Ok ( 1, 2 ))
         ]
@@ -79,23 +69,21 @@ loop =
     describe "loops"
         [ test "When everything goes well" <|
             \_ ->
-                E.sequence
+                encodeSequence
                     [ E.unsignedInt8 3
                     , E.string "foo"
                     , E.string "bar"
                     , E.string "baz"
                     ]
-                    |> E.encode
                     |> P.run parser
                     |> Expect.equal (Ok [ "foo", "bar", "baz" ])
         , test "failure propagates" <|
             \_ ->
-                E.sequence
+                encodeSequence
                     [ E.unsignedInt8 3
                     , E.string "foo"
                     , E.string "bar"
                     ]
-                    |> E.encode
                     |> P.run parser
                     |> Expect.equal (Err (P.OutOfBounds { at = 7, bytes = 3 }))
         ]
@@ -110,12 +98,67 @@ repeat =
                 parser =
                     P.andThen (P.repeat (P.string 3)) P.unsignedInt8
             in
-            E.sequence
+            encodeSequence
                 [ E.unsignedInt8 3
                 , E.string "foo"
                 , E.string "bar"
                 , E.string "baz"
                 ]
-                |> E.encode
                 |> P.run parser
                 |> Expect.equal (Ok [ "foo", "bar", "baz" ])
+
+
+context : Test
+context =
+    let
+        stream : P.Parser String e (List String)
+        stream =
+            P.unsignedInt8
+                |> P.andThen (P.repeat string)
+                |> P.inContext "stream"
+
+        string : P.Parser String e String
+        string =
+            P.unsignedInt8
+                |> P.andThen P.string
+                |> P.inContext "string"
+    in
+    describe "context"
+        [ test "parser is actually correct" <|
+            \_ ->
+                encodeSequence
+                    [ E.unsignedInt8 2
+                    , E.unsignedInt8 3
+                    , E.string "foo"
+                    , E.unsignedInt8 3
+                    , E.string "bar"
+                    ]
+                    |> P.run stream
+                    |> Expect.equal (Ok [ "foo", "bar" ])
+        , test "Context stacks" <|
+            \_ ->
+                encodeSequence
+                    [ E.unsignedInt8 2
+                    , E.unsignedInt8 3
+                    , E.string "foo"
+                    , E.unsignedInt8 4
+                    , E.string "bar"
+                    ]
+                    |> P.run stream
+                    |> Expect.equal
+                        (P.OutOfBounds { at = 6, bytes = 4 }
+                            |> P.InContext { label = "string", start = 5 }
+                            |> P.InContext { label = "stream", start = 0 }
+                            |> Err
+                        )
+        ]
+
+
+encodeSequence : List E.Encoder -> B.Bytes
+encodeSequence =
+    E.sequence >> E.encode
+
+
+emptyBytes : B.Bytes
+emptyBytes =
+    encodeSequence []
