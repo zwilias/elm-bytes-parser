@@ -33,7 +33,7 @@ basic =
                 E.sequence []
                     |> E.encode
                     |> P.run (P.fail "nope")
-                    |> Expect.equal (Err (P.Custom "nope"))
+                    |> Expect.equal (Err (P.Custom { at = 0 } "nope"))
         , test "inContext adds context" <|
             \_ ->
                 E.sequence []

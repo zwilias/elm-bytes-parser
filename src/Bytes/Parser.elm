@@ -99,8 +99,8 @@ Custom errors happen through [`fail`](#fail), context tracking happens through
 type Error context error
     = InContext { label : context, start : Int } (Error context error)
     | OutOfBounds { at : Int, bytes : Int }
-    | Custom error
-    | BadOneOf (List (Error context error))
+    | Custom { at : Int } error
+    | BadOneOf { at : Int } (List (Error context error))
 
 
 type alias State =
@@ -283,12 +283,31 @@ randomAccess config (Parser f) =
     E.sequence []
         |> E.encode
         |> P.run (P.fail SomeFailure)
-    --> Err (P.Custom SomeFailure)
+    --> Err (P.Custom { at = 0 } SomeFailure)
+
+_Important note about using `fail` in `andThen`_:
+
+The offset the `Custom` constructor of `Error` is tagged with, is the offset the
+parser is at when `fail` is executed. When this happens inside and `andThen`, be
+aware that something was already read in order for there to be and `andThen` in
+the first place.
+
+For example, consider this:
+
+    E.unsignedInt8 1
+        |> E.encode
+        |> P.run (P.andThen (\_ -> P.fail "fail") P.unsignedInt8)
+    --> Err (P.Custom { at = 1 } "fail")
+
+We may have intended for the failure to be about the byte we just read, and
+expect the offset to be "before" reading that byte. That's not quite what
+`andThen` means, though! `andThen` means we parsed something successfully
+already!
 
 -}
 fail : error -> Parser context error value
 fail e =
-    Parser <| \_ -> Bad (Custom e)
+    Parser <| \state -> Bad (Custom { at = state.offset } e)
 
 
 {-| Add context to errors that may occur during parsing.
@@ -603,7 +622,7 @@ you can use this for checking the value of something, without using the value.
         |> E.encode
         |> P.run parser
     --> Mismatch { expected = 66, actual = 44 }
-    -->   |> P.Custom
+    -->   |> P.Custom { at = 1 }
     -->   |> Err
 
 -}
@@ -644,7 +663,7 @@ oneOfHelp :
 oneOfHelp options errors state =
     case options of
         [] ->
-            Bad (BadOneOf (List.reverse errors))
+            Bad (BadOneOf { at = state.offset } (List.reverse errors))
 
         (Parser f) :: xs ->
             case f state of
