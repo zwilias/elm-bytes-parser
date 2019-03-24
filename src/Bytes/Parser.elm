@@ -97,8 +97,8 @@ Custom errors happen through [`fail`](#fail), context tracking happens through
 
 -}
 type Error context error
-    = InContext context (Error context error)
-    | EndOfInput
+    = InContext { label : context, start : Int } (Error context error)
+    | OutOfBounds { at : Int, bytes : Int }
     | Custom error
     | BadOneOf (List (Error context error))
 
@@ -305,14 +305,20 @@ Adding context makes it easier to debug where issues occur.
     E.sequence []
         |> E.encode
         |> P.run (P.inContext Header P.unsignedInt8)
-    --> Err (P.InContext Header P.EndOfInput)
+    --> Err
+    -->    (P.InContext
+    -->        { label = Header
+    -->        , start = 0
+    -->        }
+    -->        (P.OutOfBounds { at = 0, bytes = 1})
+    -->    )
 
 -}
 inContext :
     context
     -> Parser context error value
     -> Parser context error value
-inContext ctx (Parser f) =
+inContext label (Parser f) =
     Parser
         (\state ->
             case f state of
@@ -320,7 +326,13 @@ inContext ctx (Parser f) =
                     Good v s
 
                 Bad e ->
-                    Bad (InContext ctx e)
+                    Bad
+                        (InContext
+                            { label = label
+                            , start = state.offset
+                            }
+                            e
+                        )
         )
 
 
@@ -339,7 +351,7 @@ inContext ctx (Parser f) =
     E.string "hello"
         |> E.encode
         |> P.run (P.string 6)
-    --> Err P.EndOfInput
+    --> Err (P.OutOfBounds { at = 0, bytes = 6 })
 
 -}
 run :
@@ -863,4 +875,4 @@ fromDecoder dec byteLength =
                     Good res { state | offset = state.offset + byteLength }
 
                 Nothing ->
-                    Bad EndOfInput
+                    Bad (OutOfBounds { at = state.offset, bytes = byteLength })

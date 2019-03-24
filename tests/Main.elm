@@ -1,4 +1,4 @@
-module Example exposing (basic, loop, repeat)
+module Main exposing (basic, loop, repeat)
 
 import Bytes as B
 import Bytes.Encode as E
@@ -21,7 +21,7 @@ basic =
                 E.sequence []
                     |> E.encode
                     |> P.run P.unsignedInt8
-                    |> Expect.equal (Err P.EndOfInput)
+                    |> Expect.equal (Err (P.OutOfBounds { at = 0, bytes = 1 }))
         , test "succeed succeeds" <|
             \_ ->
                 E.sequence []
@@ -39,7 +39,12 @@ basic =
                 E.sequence []
                     |> E.encode
                     |> P.run (P.inContext "context" P.unsignedInt8)
-                    |> Expect.equal (Err (P.InContext "context" P.EndOfInput))
+                    |> Expect.equal
+                        (Err
+                            (P.InContext { label = "context", start = 0 }
+                                (P.OutOfBounds { at = 0, bytes = 1 })
+                            )
+                        )
         , test "can read multiple things" <|
             \_ ->
                 E.sequence
@@ -92,7 +97,7 @@ loop =
                     ]
                     |> E.encode
                     |> P.run parser
-                    |> Expect.equal (Err P.EndOfInput)
+                    |> Expect.equal (Err (P.OutOfBounds { at = 7, bytes = 3 }))
         ]
 
 
