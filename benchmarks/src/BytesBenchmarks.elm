@@ -16,7 +16,7 @@ decodeList =
 
 decodeLongList : () -> Maybe (List Float)
 decodeLongList =
-    \_ -> Bytes.Decode.decode decodeFloatList Data.bytesFloatList
+    \_ -> Bytes.Decode.decode decodeFloatList Data.longBytesFloatList
 
 
 list : Bytes.Decode.Decoder a -> Bytes.Decode.Decoder (List a)
